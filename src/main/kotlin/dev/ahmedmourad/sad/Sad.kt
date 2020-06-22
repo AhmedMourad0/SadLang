@@ -7,7 +7,6 @@ import java.nio.file.Files
 import java.nio.file.Paths
 import kotlin.system.exitProcess
 
-//TODO: move error reporting to ErrorReporter, show the user the code having the error
 object Sad {
 
     private val messageCollector: MessageCollector = MessageCollectorImpl()
@@ -44,7 +43,7 @@ object Sad {
         while (true) {
             print("> ")
             run(reader.readLine())
-            messageCollector.clearError()
+            messageCollector.forgiveError()
         }
     }
 
