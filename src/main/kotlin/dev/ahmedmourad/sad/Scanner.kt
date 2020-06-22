@@ -6,6 +6,7 @@ interface Scanner {
     fun scan(source: String): List<Token>
 }
 
+//TODO: """ for multi-line strings, multiline comments
 class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
 
     override fun scan(source: String): List<Token> {
@@ -14,7 +15,12 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
         val collector = TokenCollector(source, navigator)
 
         fun reportError(message: String) {
-            messageCollector.error(navigator.currentLine(), navigator.currentTokenColumn(), message)
+            messageCollector.error(
+                navigator.currentLine(),
+                navigator.currentColumn(),
+                navigator.currentLineAsLexeme(),
+                message
+            )
         }
 
         while (!navigator.isAtEnd()) {
@@ -70,14 +76,17 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
 
         while (navigator.peek() != '"' && !navigator.isAtEnd()) {
             if (navigator.peek() == '\n') {
+
+                navigator.advance()
                 navigator.moveToNextLine()
+            } else {
+                navigator.advance()
             }
-            navigator.advance()
         }
 
-        // Unterminated string.
+        // Unterminated String
         if (navigator.isAtEnd()) {
-            reportError("Unterminated string.")
+            reportError("Unterminated String")
             return
         }
 
@@ -139,6 +148,9 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
         private var line = 1
         private var lineStart = start
 
+        private var lineOfCurrentToken = line
+        private var columnOfCurrentToken = start
+
         fun advance(): Char {
             moveToNextChar()
             return source[next - 1]
@@ -178,10 +190,16 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
 
         fun moveToNextToken() {
             start = next
+            columnOfCurrentToken = start - lineStart
+            lineOfCurrentToken = line
         }
 
-        fun currentTokenColumn(): Int {
-            return start - lineStart
+        fun currentTokenStartColumn(): Int {
+            return columnOfCurrentToken
+        }
+
+        fun currentTokenStartLine(): Int {
+            return lineOfCurrentToken
         }
 
         fun isAtEnd(): Boolean {
@@ -190,6 +208,18 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
 
         fun currentLine(): Int {
             return line
+        }
+
+        private fun currentLineEnd(): Int {
+            return source.indexOf('\n', next - 1).takeIf { it > 0 } ?: source.length
+        }
+
+        fun currentLineAsLexeme(): String {
+            return source.substring(lineStart, currentLineEnd())
+        }
+
+        fun currentColumn(): Int {
+            return next - lineStart - 1
         }
 
         fun nextCharIndex(): Int {
@@ -211,8 +241,8 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
                     type,
                     lexeme,
                     literal,
-                    navigator.currentLine(),
-                    navigator.currentTokenColumn()
+                    navigator.currentTokenStartLine(),
+                    navigator.currentTokenStartColumn()
                 )
             )
         }
