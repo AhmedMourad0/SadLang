@@ -1,0 +1,8 @@
+var hi = 5;
+val hello = #5.4;
+var jimmy = "This is
+ a
+multline string"@;
+// Hello
+"and@ this isn't"@;
+var normalString = "hello there;
