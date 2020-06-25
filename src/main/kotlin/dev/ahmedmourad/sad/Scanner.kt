@@ -27,24 +27,28 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
 
     private fun scanToken(collector: TokenCollector, navigator: SourceNavigator) {
         when (val char = navigator.advance()) {
-            '(' -> collector.captureToken(LEFT_PAREN)
-            ')' -> collector.captureToken(RIGHT_PAREN)
-            '{' -> collector.captureToken(LEFT_BRACE)
-            '}' -> collector.captureToken(RIGHT_BRACE)
-            ',' -> collector.captureToken(COMMA)
-            '.' -> collector.captureToken(DOT)
-            '-' -> collector.captureToken(MINUS)
-            '+' -> collector.captureToken(PLUS)
-            ';' -> collector.captureToken(SEMICOLON)
-            '*' -> collector.captureToken(STAR)
-            '!' -> collector.captureToken(if (navigator.matchNextChar('=')) BANG_EQUAL else BANG)
-            '=' -> collector.captureToken(if (navigator.matchNextChar('=')) EQUAL_EQUAL else EQUAL)
-            '<' -> collector.captureToken(if (navigator.matchNextChar('=')) LESS_EQUAL else LESS)
-            '>' -> collector.captureToken(if (navigator.matchNextChar('=')) GREATER_EQUAL else GREATER)
-            '/' -> if (navigator.matchNextChar('/')) comment(navigator) else collector.captureToken(SLASH)
+            '(' -> collector.capture(LEFT_PAREN)
+            ')' -> collector.capture(RIGHT_PAREN)
+            '{' -> collector.capture(LEFT_BRACE)
+            '}' -> collector.capture(RIGHT_BRACE)
+            ',' -> collector.capture(COMMA)
+            '.' -> collector.capture(DOT)
+            '-' -> collector.capture(MINUS)
+            '+' -> collector.capture(PLUS)
+            ';' -> collector.capture(SEMICOLON)
+            '*' -> collector.capture(STAR)
+            '!' -> collector.capture(if (navigator.advanceIf('=')) BANG_EQUAL else BANG)
+            '=' -> collector.capture(if (navigator.advanceIf('=')) EQUAL_EQUAL else EQUAL)
+            '<' -> collector.capture(if (navigator.advanceIf('=')) LESS_EQUAL else LESS)
+            '>' -> collector.capture(if (navigator.advanceIf('=')) GREATER_EQUAL else GREATER)
+            '/' -> when {
+                navigator.advanceIf('/') -> comment(navigator)
+                navigator.advanceIf('*') -> multilineComment(navigator)
+                else -> collector.capture(SLASH)
+            }
             ' ', '\r', '\t' -> Unit
             '\n' -> navigator.moveToNextLine()
-            '"' -> if (navigator.matchNext("\"\"")) multilineString(navigator, collector) else string(navigator, collector)
+            '"' -> if (navigator.advanceIf("\"\"")) multilineString(navigator, collector) else string(navigator, collector)
             else -> {
                 when {
                     isNormalDigit(char) -> number(navigator, collector)
@@ -86,7 +90,7 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
             return
         }
 
-        // The closing ".
+        // The closing "
         navigator.advance()
 
         collector.captureString()
@@ -94,7 +98,7 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
 
     private fun multilineString(navigator: SourceNavigator, collector: TokenCollector) {
 
-        while (!navigator.isAtEnd(3) && navigator.peek(count = 3) != "\"\"\"") {
+        while (!navigator.isAtEnd() && navigator.peek(count = 3) != "\"\"\"") {
             if (navigator.peekChar() == '\n') {
                 navigator.advance()
                 navigator.moveToNextLine()
@@ -104,12 +108,16 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
         }
 
         // Unterminated String
-        if (navigator.isAtEnd(3)) {
-            reportError(navigator, "Unterminated String")
+        if (navigator.isAtEnd()) {
+            reportError(
+                navigator,
+                "Unterminated String",
+                column = navigator.currentColumn() - 2
+            )
             return
         }
 
-        // The closing """.
+        // The closing """
         repeat(3) {
             navigator.advance()
         }
@@ -132,7 +140,7 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
             navigator.advance()
         }
 
-        // Look for a fractional part.
+        // Look for a fractional part
         if (navigator.peekChar() == '.' && isNormalDigit(navigator.peekChar(offset = 1))) {
             navigator.advance()
             while (isNormalDigit(navigator.peekChar())) {
@@ -144,8 +152,28 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
     }
 
     private fun comment(navigator: SourceNavigator) {
-        // A comment goes until the end of the line.
+        // A normal comment goes until the end of the line.
         while (!navigator.isAtEnd() && navigator.peekChar() != '\n') {
+            navigator.advance()
+        }
+    }
+
+    private fun multilineComment(navigator: SourceNavigator) {
+
+        while (!navigator.isAtEnd() && navigator.peek(count = 2) != "*/") {
+            when {
+                navigator.peekChar() == '\n' -> {
+                    navigator.advance()
+                    navigator.moveToNextLine()
+                }
+                else -> {
+                    navigator.advance()
+                }
+            }
+        }
+
+        // The closing */
+        repeat(2) {
             navigator.advance()
         }
     }
@@ -177,7 +205,7 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
             return source[next - 1]
         }
 
-        fun matchNext(expected: String): Boolean {
+        fun advanceIf(expected: String): Boolean {
 
             if (isAtEnd(expected.length)) {
                 return false
@@ -194,12 +222,12 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
             return true
         }
 
-        fun matchNextChar(expected: Char): Boolean {
-            return matchNext(expected.toString())
+        fun advanceIf(expected: Char): Boolean {
+            return advanceIf(expected.toString())
         }
 
         fun peek(count: Int = 1, offset: Int = 0): String {
-            return if (isAtEnd(offset + 1)) {
+            return if (isAtEnd(offset + count + 1)) {
                 '\u0000'.toString()
             } else {
                 source.substring(offset + next, offset + next + count)
@@ -233,8 +261,8 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
             return lineOfCurrentToken
         }
 
-        fun isAtEnd(padding: Int = 1): Boolean {
-            return next + padding - 1 >= source.length
+        fun isAtEnd(required: Int = 1): Boolean {
+            return next + required - 1 >= source.length
         }
 
         fun currentLine(): Int {
@@ -266,7 +294,7 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
 
         private val tokens: MutableList<Token> = arrayListOf()
 
-        fun captureToken(type: TokenType, literal: Any? = null, lexeme: String = extractLexeme()) {
+        fun capture(type: TokenType, literal: Any? = null, lexeme: String = extractLexeme()) {
             tokens.add(
                 Token(
                     type,
@@ -284,7 +312,7 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
                 navigator.currentTokenStartIndex() + 1,
                 navigator.nextCharIndex() - 1
             )
-            captureToken(STRING, value)
+            capture(STRING, value)
         }
 
         fun captureMultilineString() {
@@ -293,11 +321,11 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
                 navigator.currentTokenStartIndex() + 3,
                 navigator.nextCharIndex() - 3
             )
-            captureToken(STRING, value)
+            capture(STRING, value)
         }
 
         fun captureNumber() {
-            captureToken(NUMBER, source.substring(
+            capture(NUMBER, source.substring(
                 navigator.currentTokenStartIndex(),
                 navigator.nextCharIndex()
             ).toDouble())
@@ -308,11 +336,11 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
                 navigator.currentTokenStartIndex(),
                 navigator.nextCharIndex()
             )
-            captureToken(KEYWORDS[lexeme] ?: IDENTIFIER)
+            capture(KEYWORDS[lexeme] ?: IDENTIFIER)
         }
 
         fun captureEOF() {
-            captureToken(EOF, null, "")
+            capture(EOF, null, "")
         }
 
         fun collect(): List<Token> {

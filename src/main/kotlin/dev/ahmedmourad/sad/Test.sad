@@ -5,14 +5,18 @@ var jimmy = "This is a normal string"@;
 "so@ is this"@;
 var normalString = "hello there;
 
-"""aaaaaaaaaaaaaa"""
+"""aaaa"""
 
-"""aaaaaaaaaa
-bbbbbbbbbbbb"""
+"""aaa
+bbbb"""
+
+/*asfadfasdfsa dfsd
+dfsdf
+fafsd*/
 
 """
-aaaaaaaaaa
-bbbbbbbbbbbb
+aa
+bbb
 """
 
 
