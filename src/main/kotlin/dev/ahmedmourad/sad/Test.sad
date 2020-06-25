@@ -10,8 +10,8 @@ var normalString = "hello there;
 """aaa
 bbbb"""
 
-/*asfadfasdfsa dfsd
-dfsdf
+/*asfadfasdfsa dfsd /*
+dfsdf*/
 fafsd*/
 
 """

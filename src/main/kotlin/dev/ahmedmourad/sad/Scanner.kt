@@ -162,6 +162,9 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
 
         while (!navigator.isAtEnd() && navigator.peek(count = 2) != "*/") {
             when {
+                navigator.advanceIf("/*") -> {
+                    multilineComment(navigator)
+                }
                 navigator.peekChar() == '\n' -> {
                     navigator.advance()
                     navigator.moveToNextLine()
