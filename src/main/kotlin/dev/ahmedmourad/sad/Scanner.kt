@@ -14,19 +14,10 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
         val navigator = SourceNavigator(source)
         val collector = TokenCollector(source, navigator)
 
-        fun reportError(message: String) {
-            messageCollector.error(
-                navigator.currentLine(),
-                navigator.currentColumn(),
-                navigator.currentLineAsLexeme(),
-                message
-            )
-        }
-
         while (!navigator.isAtEnd()) {
             // We are at the beginning of the next lexeme.
             navigator.moveToNextToken()
-            scanToken(::reportError, collector, navigator)
+            scanToken(collector, navigator)
         }
 
         collector.captureEOF()
@@ -34,11 +25,7 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
         return collector.collect()
     }
 
-    private fun scanToken(
-        reportError: (String) -> Unit,
-        collector: TokenCollector,
-        navigator: SourceNavigator
-    ) {
+    private fun scanToken(collector: TokenCollector, navigator: SourceNavigator) {
         when (val char = navigator.advance()) {
             '(' -> collector.captureToken(LEFT_PAREN)
             ')' -> collector.captureToken(RIGHT_PAREN)
@@ -50,43 +37,52 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
             '+' -> collector.captureToken(PLUS)
             ';' -> collector.captureToken(SEMICOLON)
             '*' -> collector.captureToken(STAR)
-            '!' -> collector.captureToken(if (navigator.matchNext('=')) BANG_EQUAL else BANG)
-            '=' -> collector.captureToken(if (navigator.matchNext('=')) EQUAL_EQUAL else EQUAL)
-            '<' -> collector.captureToken(if (navigator.matchNext('=')) LESS_EQUAL else LESS)
-            '>' -> collector.captureToken(if (navigator.matchNext('=')) GREATER_EQUAL else GREATER)
-            '/' -> if (navigator.matchNext('/')) comment(navigator) else collector.captureToken(SLASH)
+            '!' -> collector.captureToken(if (navigator.matchNextChar('=')) BANG_EQUAL else BANG)
+            '=' -> collector.captureToken(if (navigator.matchNextChar('=')) EQUAL_EQUAL else EQUAL)
+            '<' -> collector.captureToken(if (navigator.matchNextChar('=')) LESS_EQUAL else LESS)
+            '>' -> collector.captureToken(if (navigator.matchNextChar('=')) GREATER_EQUAL else GREATER)
+            '/' -> if (navigator.matchNextChar('/')) comment(navigator) else collector.captureToken(SLASH)
             ' ', '\r', '\t' -> Unit
             '\n' -> navigator.moveToNextLine()
-            '"' -> string(reportError, navigator, collector)
+            '"' -> if (navigator.matchNext("\"\"")) multilineString(navigator, collector) else string(navigator, collector)
             else -> {
                 when {
                     isNormalDigit(char) -> number(navigator, collector)
                     isAlpha(char) -> identifierOrKeyword(navigator, collector)
-                    else -> reportError("Unexpected character: $char")
+                    else -> reportError(navigator, "Unexpected character: $char")
                 }
             }
         }
     }
 
-    private fun string(
-        reportError: (String) -> Unit,
+    private fun reportError(
         navigator: SourceNavigator,
-        collector: TokenCollector
+        message: String,
+        line: Int = navigator.currentLine(),
+        column: Int = navigator.currentColumn(),
+        lineAsLexeme: String = navigator.currentLineAsLexeme()
     ) {
+        messageCollector.error(
+            line,
+            column,
+            lineAsLexeme,
+            message
+        )
+    }
 
-        while (navigator.peek() != '"' && !navigator.isAtEnd()) {
-            if (navigator.peek() == '\n') {
+    private fun string(navigator: SourceNavigator, collector: TokenCollector) {
 
-                navigator.advance()
-                navigator.moveToNextLine()
-            } else {
-                navigator.advance()
-            }
+        while (!navigator.isAtEnd() && navigator.peekChar() !in arrayOf('"', '\n')) {
+            navigator.advance()
         }
 
         // Unterminated String
-        if (navigator.isAtEnd()) {
-            reportError("Unterminated String")
+        if (navigator.isAtEnd() || navigator.peekChar() == '\n') {
+            reportError(
+                navigator,
+                "Unterminated String",
+                column = navigator.currentColumn() - 1
+            )
             return
         }
 
@@ -96,9 +92,34 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
         collector.captureString()
     }
 
+    private fun multilineString(navigator: SourceNavigator, collector: TokenCollector) {
+
+        while (!navigator.isAtEnd(3) && navigator.peek(count = 3) != "\"\"\"") {
+            if (navigator.peekChar() == '\n') {
+                navigator.advance()
+                navigator.moveToNextLine()
+            } else {
+                navigator.advance()
+            }
+        }
+
+        // Unterminated String
+        if (navigator.isAtEnd(3)) {
+            reportError(navigator, "Unterminated String")
+            return
+        }
+
+        // The closing """.
+        repeat(3) {
+            navigator.advance()
+        }
+
+        collector.captureMultilineString()
+    }
+
     private fun identifierOrKeyword(navigator: SourceNavigator, collector: TokenCollector) {
 
-        while (isAlphaNumeric(navigator.peek())) {
+        while (isAlphaNumeric(navigator.peekChar())) {
             navigator.advance()
         }
 
@@ -107,14 +128,14 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
 
     private fun number(navigator: SourceNavigator, collector: TokenCollector) {
 
-        while (isNormalDigit(navigator.peek())) {
+        while (isNormalDigit(navigator.peekChar())) {
             navigator.advance()
         }
 
         // Look for a fractional part.
-        if (navigator.peek() == '.' && isNormalDigit(navigator.peekFurther())) {
+        if (navigator.peekChar() == '.' && isNormalDigit(navigator.peekChar(offset = 1))) {
             navigator.advance()
-            while (isNormalDigit(navigator.peek())) {
+            while (isNormalDigit(navigator.peekChar())) {
                 navigator.advance()
             }
         }
@@ -124,7 +145,7 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
 
     private fun comment(navigator: SourceNavigator) {
         // A comment goes until the end of the line.
-        while (navigator.peek() != '\n' && !navigator.isAtEnd()) {
+        while (!navigator.isAtEnd() && navigator.peekChar() != '\n') {
             navigator.advance()
         }
     }
@@ -156,27 +177,37 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
             return source[next - 1]
         }
 
-        fun matchNext(expected: Char): Boolean {
+        fun matchNext(expected: String): Boolean {
 
-            if (isAtEnd()) {
+            if (isAtEnd(expected.length)) {
                 return false
             }
 
-            if (source[next] != expected) {
+            if (source.substring(next, next + expected.length) != expected) {
                 return false
             }
 
-            moveToNextChar()
+            repeat(expected.length) {
+                moveToNextChar()
+            }
 
             return true
         }
 
-        fun peek(): Char {
-            return if (isAtEnd()) '\u0000' else source[next]
+        fun matchNextChar(expected: Char): Boolean {
+            return matchNext(expected.toString())
         }
 
-        fun peekFurther(): Char {
-            return if (next + 1 >= source.length) '\u0000' else source[next + 1]
+        fun peek(count: Int = 1, offset: Int = 0): String {
+            return if (isAtEnd(offset + 1)) {
+                '\u0000'.toString()
+            } else {
+                source.substring(offset + next, offset + next + count)
+            }
+        }
+
+        fun peekChar(offset: Int = 0): Char {
+            return peek(count = 1, offset = offset).toCharArray()[0]
         }
 
         fun moveToNextLine() {
@@ -202,8 +233,8 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
             return lineOfCurrentToken
         }
 
-        fun isAtEnd(): Boolean {
-            return next >= source.length
+        fun isAtEnd(padding: Int = 1): Boolean {
+            return next + padding - 1 >= source.length
         }
 
         fun currentLine(): Int {
@@ -252,6 +283,15 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
             val value = source.substring(
                 navigator.currentTokenStartIndex() + 1,
                 navigator.nextCharIndex() - 1
+            )
+            captureToken(STRING, value)
+        }
+
+        fun captureMultilineString() {
+            // Trim the surrounding quotes.
+            val value = source.substring(
+                navigator.currentTokenStartIndex() + 3,
+                navigator.nextCharIndex() - 3
             )
             captureToken(STRING, value)
         }

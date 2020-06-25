@@ -1,8 +1,20 @@
 var hi = 5;
 val hello = #5.4;
-var jimmy = "This is
- a
-multline string"@;
+var jimmy = "This is a normal string"@;
 // Hello
-"and@ this isn't"@;
+"so@ is this"@;
 var normalString = "hello there;
+
+"""aaaaaaaaaaaaaa"""
+
+"""aaaaaaaaaa
+bbbbbbbbbbbb"""
+
+"""
+aaaaaaaaaa
+bbbbbbbbbbbb
+"""
+
+
+"""
+ccc
