@@ -49,6 +49,7 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
             }
             ' ', '\r', '\t' -> Unit
             '\n' -> navigator.moveToNextLine()
+            '\'' -> character(navigator, collector)
             '"' -> if (navigator.advanceIf("\"\"")) multilineString(navigator, collector) else string(navigator, collector)
             else -> {
                 when {
@@ -73,6 +74,47 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
             lineAsLexeme,
             message
         )
+    }
+
+    private fun character(navigator: SourceNavigator, collector: TokenCollector) {
+
+        while (!navigator.isAtEnd() && navigator.peekChar() !in arrayOf('\'', '\n')) {
+            navigator.advance()
+        }
+
+        if (navigator.isAtEnd() || navigator.peekChar() == '\n') {
+            reportError(
+                navigator,
+                "Incorrect character literal",
+                column = navigator.currentTokenStartColumn()
+            )
+            return
+        }
+
+        // The closing '
+        navigator.advance()
+
+        when (navigator.currentTokenLength()) {
+
+            2 -> {
+                reportError(
+                    navigator,
+                    "Empty character literal"
+                )
+                return
+            }
+
+            3 -> collector.captureCharacter()
+
+            else -> {
+                reportError(
+                    navigator,
+                    "Too many characters in a character literal \"${navigator.currentTokenAsLexeme()}\"",
+                    column = navigator.currentTokenStartColumn()
+                )
+                return
+            }
+        }
     }
 
     private fun string(navigator: SourceNavigator, collector: TokenCollector) {
@@ -265,6 +307,14 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
             return lineOfCurrentToken
         }
 
+        fun currentTokenLength(): Int {
+            return nextCharIndex() - (lineStart + currentTokenStartColumn())
+        }
+
+        fun currentTokenAsLexeme(): String {
+            return source.substring(currentTokenStartColumn(), nextCharIndex())
+        }
+
         fun isAtEnd(required: Int = 1): Boolean {
             return next + required - 1 >= source.length
         }
@@ -308,6 +358,15 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
                     navigator.currentTokenStartColumn()
                 )
             )
+        }
+
+        fun captureCharacter() {
+            // Trim the surrounding quotes.
+            val value = source.substring(
+                navigator.currentTokenStartIndex() + 1,
+                navigator.nextCharIndex() - 1
+            )
+            capture(CHAR, value)
         }
 
         fun captureString() {
