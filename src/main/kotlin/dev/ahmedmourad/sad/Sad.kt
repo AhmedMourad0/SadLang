@@ -10,7 +10,7 @@ import kotlin.system.exitProcess
 object Sad {
 
     private val messageCollector: MessageCollector = MessageCollectorImpl()
-    private val scanner: Scanner = ScannerImpl(messageCollector)
+    private val LEXER: Lexer = LexerImpl(messageCollector)
 
     @JvmStatic
     fun main(args: Array<String>) {
@@ -49,7 +49,7 @@ object Sad {
 
     private fun run(source: String) {
         // For now, just print the tokens.
-        for (token in scanner.scan(source)) {
+        for (token in LEXER.scan(source)) {
             println(token)
         }
     }

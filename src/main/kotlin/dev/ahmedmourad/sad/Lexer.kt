@@ -1,13 +1,12 @@
 package dev.ahmedmourad.sad
 
-import dev.ahmedmourad.sad.TokenType.*
+import dev.ahmedmourad.sad.SymbolType.*
 
-interface Scanner {
+interface Lexer {
     fun scan(source: String): List<Token>
 }
 
-//TODO: """ for multi-line strings, multiline comments
-class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
+class LexerImpl(private val messageCollector: MessageCollector) : Lexer {
 
     override fun scan(source: String): List<Token> {
 
@@ -50,7 +49,10 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
             ' ', '\r', '\t' -> Unit
             '\n' -> navigator.moveToNextLine()
             '\'' -> character(navigator, collector)
-            '"' -> if (navigator.advanceIf("\"\"")) multilineString(navigator, collector) else string(navigator, collector)
+            '"' -> if (navigator.advanceIf("\"\"")) multilineString(navigator, collector) else string(
+                navigator,
+                collector
+            )
             else -> {
                 when {
                     isNormalDigit(char) -> number(navigator, collector)
@@ -348,62 +350,103 @@ class ScannerImpl(private val messageCollector: MessageCollector) : Scanner {
 
         private val tokens: MutableList<Token> = arrayListOf()
 
-        fun capture(type: TokenType, literal: Any? = null, lexeme: String = extractLexeme()) {
+        private fun capture(factory: (line: Int, column: Int) -> Token) {
             tokens.add(
-                Token(
-                    type,
-                    lexeme,
-                    literal,
+                factory(
                     navigator.currentTokenStartLine(),
                     navigator.currentTokenStartColumn()
                 )
             )
         }
 
+        fun capture(type: SymbolType) {
+            capture { line, column ->
+                Symbol(type, line, column)
+            }
+        }
+
         fun captureCharacter() {
             // Trim the surrounding quotes.
-            val value = source.substring(
+            val literal = source.substring(
                 navigator.currentTokenStartIndex() + 1,
                 navigator.nextCharIndex() - 1
-            )
-            capture(CHAR, value)
+            ).toCharArray()[0]
+            capture { line, column ->
+                Literal.Character(
+                    literal,
+                    extractLexeme(),
+                    line,
+                    column
+                )
+            }
         }
 
         fun captureString() {
             // Trim the surrounding quotes.
-            val value = source.substring(
+            val literal = source.substring(
                 navigator.currentTokenStartIndex() + 1,
                 navigator.nextCharIndex() - 1
             )
-            capture(STRING, value)
+            capture { line, column ->
+                Literal.String(
+                    literal,
+                    extractLexeme(),
+                    line,
+                    column
+                )
+            }
         }
 
         fun captureMultilineString() {
             // Trim the surrounding quotes.
-            val value = source.substring(
+            val literal = source.substring(
                 navigator.currentTokenStartIndex() + 3,
                 navigator.nextCharIndex() - 3
             )
-            capture(STRING, value)
+            capture { line, column ->
+                Literal.String(
+                    literal,
+                    extractLexeme(),
+                    line,
+                    column
+                )
+            }
         }
 
         fun captureNumber() {
-            capture(NUMBER, source.substring(
+            val literal = source.substring(
                 navigator.currentTokenStartIndex(),
                 navigator.nextCharIndex()
-            ).toDouble())
+            ).toDouble()
+            capture { line, column ->
+                Literal.Number(
+                    literal,
+                    extractLexeme(),
+                    line,
+                    column
+                )
+            }
         }
 
         fun captureIdentifierOrKeyword() {
-            val lexeme = source.substring(
-                navigator.currentTokenStartIndex(),
-                navigator.nextCharIndex()
-            )
-            capture(KEYWORDS[lexeme] ?: IDENTIFIER)
+
+            val lexeme = extractLexeme()
+
+            val keywordType = KeywordType.values().firstOrNull {
+                it.lexeme == lexeme
+            }
+
+            capture { line, column ->
+                keywordType?.let {
+                    Keyword(it, line, column)
+                } ?: Literal.Identifier(lexeme, line, column)
+            }
         }
 
         fun captureEOF() {
-            capture(EOF, null, "")
+            capture { line, column ->
+                EOF(line, column)
+            }
         }
 
         fun collect(): List<Token> {
